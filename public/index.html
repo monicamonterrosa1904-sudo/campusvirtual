@@ -1146,31 +1146,95 @@ function setRole(role,btn){
   currentRole=role;
   document.querySelectorAll('.role-tab').forEach(t=>t.classList.remove('active'));
   btn.classList.add('active');
-  const emails={superadmin:'admin@campusvirtual.co',capacitador:'maria@empresa.com',estudiante:'carlos@empresa.com'};
-  document.getElementById('inp-email').value=emails[role];
+  const emails={superadmin:'admin@campusvirtual.co',capacitador:'',estudiante:''};
+  document.getElementById('inp-email').value=emails[role]||'';
+  document.getElementById('inp-pass').value='';
 }
-function doLogin(){
+
+// ── URL del backend ───────────────────────────
+const API = window.location.hostname === 'localhost'
+  ? 'http://localhost:3000/api'
+  : '/api';
+
+// ── TOKEN ─────────────────────────────────────
+let TOKEN = localStorage.getItem('cv_token') || null;
+let USUARIO_ACTUAL = JSON.parse(localStorage.getItem('cv_usuario') || 'null');
+
+async function doLogin(){
+  const email = document.getElementById('inp-email').value.trim();
+  const pass  = document.getElementById('inp-pass').value.trim();
+  if(!email || !pass){ alert('Ingresa email y contraseña'); return; }
+
+  const btnLogin = document.querySelector('.btn-login');
+  btnLogin.textContent = 'Ingresando...';
+  btnLogin.disabled = true;
+
+  try {
+    const res = await fetch(`${API}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: pass })
+    });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error || 'Credenciales incorrectas'); return; }
+
+    TOKEN = data.token;
+    USUARIO_ACTUAL = data.usuario;
+    localStorage.setItem('cv_token', TOKEN);
+    localStorage.setItem('cv_usuario', JSON.stringify(USUARIO_ACTUAL));
+
+    entrarApp(USUARIO_ACTUAL);
+  } catch(e) {
+    alert('Error de conexión. Intenta de nuevo.');
+  } finally {
+    btnLogin.textContent = 'Ingresar a CampusVirtual →';
+    btnLogin.disabled = false;
+  }
+}
+
+function entrarApp(usuario){
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='flex';
-  const cfg={
-    superadmin:{name:'Ana Torres',tagClass:'tag-superadmin',tagLabel:'Super Admin',nav:'nav-superadmin',page:'sa-dashboard',avatar:'AT'},
-    capacitador:{name:'María González',tagClass:'tag-capacitador',tagLabel:'Capacitador',nav:'nav-capacitador',page:'cap-dashboard',avatar:'MG'},
-    estudiante:{name:'Carlos Pérez',tagClass:'tag-estudiante',tagLabel:'Estudiante',nav:'nav-estudiante',page:'est-inicio',avatar:'CP'},
-  }[currentRole];
-  document.getElementById('sb-name').textContent=cfg.name;
-  document.getElementById('sb-avatar').textContent=cfg.avatar;
-  const rt=document.getElementById('sb-role-tag');
-  rt.textContent=cfg.tagLabel;
-  rt.className='user-role-tag '+cfg.tagClass;
+
+  // Determinar rol de la UI
+  const rol = usuario.rol === 'admin' ? 'superadmin' : usuario.rol;
+  const initials = usuario.nombre.split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase();
+
+  const tagMap = {
+    superadmin: {tagClass:'tag-superadmin', tagLabel:'Super Admin', nav:'nav-superadmin', page:'sa-dashboard'},
+    capacitador:{tagClass:'tag-capacitador', tagLabel:'Capacitador',  nav:'nav-capacitador', page:'cap-dashboard'},
+    estudiante: {tagClass:'tag-estudiante',  tagLabel:'Estudiante',   nav:'nav-estudiante',  page:'est-inicio'},
+  };
+  const cfg = tagMap[rol] || tagMap['estudiante'];
+
+  document.getElementById('sb-name').textContent = usuario.nombre;
+  document.getElementById('sb-avatar').textContent = initials;
+  const rt = document.getElementById('sb-role-tag');
+  rt.textContent = cfg.tagLabel;
+  rt.className = 'user-role-tag ' + cfg.tagClass;
+
   ['nav-superadmin','nav-capacitador','nav-estudiante'].forEach(n=>document.getElementById(n).style.display='none');
   document.getElementById(cfg.nav).style.display='block';
   populate();
-  nav(cfg.page,null);
+  nav(cfg.page, null);
 }
+
 function doLogout(){
+  TOKEN = null; USUARIO_ACTUAL = null;
+  localStorage.removeItem('cv_token');
+  localStorage.removeItem('cv_usuario');
   document.getElementById('app').style.display='none';
   document.getElementById('login-screen').style.display='flex';
 }
+
+// Auto-login si hay token guardado
+window.addEventListener('DOMContentLoaded', ()=>{
+  document.getElementById('login-screen').style.display='flex';
+  document.getElementById('app').style.display='none';
+  if(TOKEN && USUARIO_ACTUAL){
+    entrarApp(USUARIO_ACTUAL);
+  }
+});
 
 // ── MODALS ────────────────────────────────────
 function openModal(id){document.getElementById(id).classList.add('open')}
@@ -1322,28 +1386,37 @@ function guardarEdicionCurso(){
 }
 
 // ── CREAR CURSO ───────────────────────────────
-function crearCurso(){
-  const titulo=document.getElementById('new-curso-titulo').value.trim();
-  const desc=document.getElementById('new-curso-desc').value.trim();
-  const estado=document.getElementById('new-curso-estado').value;
-  if(!titulo){alert('Escribe el título del curso');return}
-  const emojis=['📘','🎯','🔬','⚙️','🛡️','📊','🌿','🚀'];
-  const colores=[['#1e3a8a','#0891b2'],['#166534','#0369a1'],['#7f1d1d','#c2410c'],['#064e3b','#0891b2']];
-  const c=colores[Math.floor(Math.random()*colores.length)];
-  const nuevo={
-    id:Date.now(),
-    titulo, descripcion:desc,
-    emoji:emojis[Math.floor(Math.random()*emojis.length)],
-    c1:c[0], c2:c[1],
-    estado, estudiantes:0, modulos:0, progreso:0
-  };
-  CURSOS.push(nuevo);
-  // Re-render todas las grillas
-  renderCursosGrids();
-  document.getElementById('new-curso-titulo').value='';
-  document.getElementById('new-curso-desc').value='';
-  closeModal('modal-new-course');
-  toast(`✅ Curso "${titulo}" creado correctamente`);
+async function crearCurso(){
+  const titulo  = document.getElementById('new-curso-titulo').value.trim();
+  const desc    = document.getElementById('new-curso-desc').value.trim();
+  const estado  = document.getElementById('new-curso-estado').value;
+  if(!titulo){ alert('Escribe el título del curso'); return; }
+
+  try {
+    const res = await fetch(`${API}/cursos`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},
+      body: JSON.stringify({ titulo, descripcion:desc, estado })
+    });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error || 'Error al crear curso'); return; }
+
+    const emojis=['📘','🎯','🔬','⚙️','🛡️','📊','🌿','🚀'];
+    const cols=[['#1e3a8a','#0891b2'],['#166534','#0369a1'],['#7f1d1d','#c2410c'],['#064e3b','#0891b2']];
+    const c=cols[Math.floor(Math.random()*cols.length)];
+    CURSOS.push({
+      id: data.id, titulo: data.titulo, descripcion: data.descripcion,
+      emoji: emojis[Math.floor(Math.random()*emojis.length)],
+      c1:c[0], c2:c[1], estado:data.estado, estudiantes:0, modulos:0, progreso:0
+    });
+    renderCursosGrids();
+    document.getElementById('new-curso-titulo').value='';
+    document.getElementById('new-curso-desc').value='';
+    closeModal('modal-new-course');
+    toast(`✅ Curso "${titulo}" creado correctamente`);
+  } catch(e){
+    alert('Error de conexión');
+  }
 }
 
 function renderCursosGrids(){
@@ -1365,28 +1438,49 @@ function abrirModalEstudiante(){
   openModal('modal-new-est');
 }
 
-function registrarEstudiante(){
-  const nombre=document.getElementById('est-nombre').value.trim();
-  const email=document.getElementById('est-email').value.trim();
-  const pass=document.getElementById('est-pass').value.trim();
-  const cursoId=document.getElementById('est-curso').value;
-  if(!nombre){alert('Ingresa el nombre del estudiante');return}
-  if(!email||!email.includes('@')){alert('Ingresa un email válido');return}
-  if(!pass||pass.length<4){alert('La contraseña debe tener al menos 4 caracteres');return}
-  if(ESTUDIANTES.find(e=>e.email===email)){alert('Ya existe un estudiante con ese email');return}
-  const cursoAsignado=CURSOS.find(c=>c.id===parseInt(cursoId));
-  ESTUDIANTES.push({
-    nombre, email,
-    cursos: cursoAsignado?1:0,
-    cursosAsignados: cursoAsignado?[cursoAsignado.titulo]:[],
-    inscrito: new Date().toLocaleDateString('es-CO',{day:'numeric',month:'short',year:'numeric'}),
-    activo:true
-  });
-  renderEstTbody();
-  closeModal('modal-new-est');
-  toast(cursoAsignado
-    ?`✅ "${nombre}" registrado y vinculado a "${cursoAsignado.titulo}"`
-    :`✅ "${nombre}" registrado sin curso asignado`);
+async function registrarEstudiante(){
+  const nombre  = document.getElementById('est-nombre').value.trim();
+  const email   = document.getElementById('est-email').value.trim();
+  const pass    = document.getElementById('est-pass').value.trim();
+  const cursoId = document.getElementById('est-curso').value;
+  if(!nombre){ alert('Ingresa el nombre del estudiante'); return; }
+  if(!email||!email.includes('@')){ alert('Ingresa un email válido'); return; }
+  if(!pass||pass.length<4){ alert('La contraseña debe tener al menos 4 caracteres'); return; }
+
+  try {
+    const res = await fetch(`${API}/auth/registro`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json', 'Authorization':'Bearer '+TOKEN},
+      body: JSON.stringify({ nombre, email, password: pass, rol:'estudiante' })
+    });
+    const data = await res.json();
+    if(!res.ok){ alert(data.error || 'Error al registrar'); return; }
+
+    // Si hay curso seleccionado, inscribir
+    if(cursoId){
+      await fetch(`${API}/cursos/${cursoId}/inscribir`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},
+        body: JSON.stringify({ estudiante_id: data.usuario.id })
+      });
+    }
+
+    const cursoAsignado = CURSOS.find(c=>c.id===parseInt(cursoId));
+    ESTUDIANTES.push({
+      nombre, email,
+      cursos: cursoAsignado?1:0,
+      cursosAsignados: cursoAsignado?[cursoAsignado.titulo]:[],
+      inscrito: new Date().toLocaleDateString('es-CO',{day:'numeric',month:'short',year:'numeric'}),
+      activo:true
+    });
+    renderEstTbody();
+    closeModal('modal-new-est');
+    toast(cursoAsignado
+      ?`✅ "${nombre}" registrado y vinculado a "${cursoAsignado.titulo}"`
+      :`✅ "${nombre}" registrado correctamente`);
+  } catch(e){
+    alert('Error de conexión');
+  }
 }
 
 function renderEstTbody(){
