@@ -1,80 +1,120 @@
-const router  = require('express').Router();
-const bcrypt  = require('bcryptjs');
-const jwt     = require('jsonwebtoken');
-const pool    = require('../db/pool');
+# 🚀 CampusVirtual — Guía de despliegue en Render.com
 
-const SECRET = process.env.JWT_SECRET || 'lms_secret_key';
+## Paso 1 — Crear cuenta en GitHub (gratis)
+1. Ve a **github.com**
+2. Clic en **Sign up**
+3. Regístrate con tu email
+4. Confirma tu email
 
-// POST /api/auth/registro
-router.post('/registro', async (req, res) => {
-  try {
-    const { nombre, email, password, rol } = req.body;
-    if (!nombre || !email || !password)
-      return res.status(400).json({ error: 'Nombre, email y contraseña son requeridos' });
+---
 
-    const rolFinal = ['admin','estudiante'].includes(rol) ? rol : 'estudiante';
-    const hash = await bcrypt.hash(password, 10);
+## Paso 2 — Subir el código a GitHub
 
-    const { rows } = await pool.query(
-      `INSERT INTO usuarios (nombre, email, password, rol)
-       VALUES ($1,$2,$3,$4) RETURNING id, nombre, email, rol`,
-      [nombre, email, hash, rolFinal]
-    );
-    res.status(201).json({ mensaje: 'Usuario creado', usuario: rows[0] });
-  } catch (err) {
-    if (err.code === '23505')
-      return res.status(409).json({ error: 'El email ya está registrado' });
-    console.error(err);
-    res.status(500).json({ error: 'Error interno' });
-  }
-});
+### Opción A — Desde el navegador (más fácil)
+1. En GitHub, clic en **"+"** → **"New repository"**
+2. Nombre: `campusvirtual`
+3. Déjalo en **Public**
+4. Clic en **"Create repository"**
+5. En la página del repositorio, clic en **"uploading an existing file"**
+6. Arrastra TODOS los archivos de esta carpeta (excepto `node_modules`)
+7. Clic en **"Commit changes"**
 
-// POST /api/auth/login
-router.post('/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password)
-      return res.status(400).json({ error: 'Email y contraseña requeridos' });
+### Opción B — Con Git (si tienes Git instalado)
+```bash
+git init
+git add .
+git commit -m "CampusVirtual inicial"
+git remote add origin https://github.com/TU_USUARIO/campusvirtual.git
+git push -u origin main
+```
 
-    const { rows } = await pool.query(
-      'SELECT * FROM usuarios WHERE email=$1 AND activo=TRUE', [email]
-    );
-    if (!rows.length)
-      return res.status(401).json({ error: 'Credenciales inválidas' });
+---
 
-    const usuario = rows[0];
-    const ok = await bcrypt.compare(password, usuario.password);
-    if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' });
+## Paso 3 — Crear cuenta en Render.com (gratis)
+1. Ve a **render.com**
+2. Clic en **"Get Started for Free"**
+3. Regístrate con tu cuenta de GitHub
 
-    const token = jwt.sign(
-      { id: usuario.id, email: usuario.email, rol: usuario.rol, nombre: usuario.nombre },
-      SECRET,
-      { expiresIn: '8h' }
-    );
+---
 
-    res.json({
-      token,
-      usuario: { id: usuario.id, nombre: usuario.nombre, email: usuario.email, rol: usuario.rol, avatar_url: usuario.avatar_url }
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Error interno' });
-  }
-});
+## Paso 4 — Crear la Base de Datos PostgreSQL en Render
 
-// GET /api/auth/perfil  (token requerido)
-router.get('/perfil', require('../middleware/auth').verificarToken, async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      'SELECT id, nombre, email, rol, avatar_url, creado_en FROM usuarios WHERE id=$1',
-      [req.usuario.id]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Usuario no encontrado' });
-    res.json(rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Error interno' });
-  }
-});
+1. En Render, clic en **"New +"** → **"PostgreSQL"**
+2. Nombre: `campusvirtual-db`
+3. Plan: **Free**
+4. Clic en **"Create Database"**
+5. Espera 1-2 minutos
+6. Copia el valor de **"Internal Database URL"** — lo necesitas en el siguiente paso
 
-module.exports = router;
+---
+
+## Paso 5 — Crear el Web Service en Render
+
+1. Clic en **"New +"** → **"Web Service"**
+2. Conecta tu repositorio de GitHub `campusvirtual`
+3. Configura así:
+
+| Campo | Valor |
+|-------|-------|
+| Name | campusvirtual |
+| Environment | Node |
+| Build Command | `npm install` |
+| Start Command | `node server.js` |
+| Plan | Free |
+
+4. En **"Environment Variables"**, agrega:
+
+| Variable | Valor |
+|----------|-------|
+| `DATABASE_URL` | (pega el Internal Database URL del paso 4) |
+| `JWT_SECRET` | (escribe cualquier texto largo, ej: `MiClaveSecreta2024Campus`) |
+| `NODE_ENV` | `production` |
+
+5. Clic en **"Create Web Service"**
+6. Render instala todo automáticamente (3-5 minutos)
+
+---
+
+## Paso 6 — Inicializar la base de datos
+
+Una vez que el servicio esté corriendo:
+
+1. En Render, ve a tu Web Service
+2. Clic en **"Shell"** (pestaña superior)
+3. Escribe: `node db/init.js`
+4. Presiona Enter
+
+Verás:
+```
+✅ Tablas creadas correctamente
+✅ Usuario admin creado: admin@campusvirtual.co / Admin2024!
+```
+
+---
+
+## Paso 7 — ¡Listo!
+
+Tu plataforma está en:
+```
+https://campusvirtual.onrender.com
+```
+
+**Credenciales iniciales:**
+- Email: `admin@campusvirtual.co`
+- Contraseña: `Admin2024!`
+
+⚠️ **Cambia la contraseña después del primer login**
+
+---
+
+## Notas importantes
+
+- **Plan gratuito de Render**: el servidor se "duerme" después de 15 minutos sin uso. El primer acceso puede tardar 30-60 segundos en despertar. Para evitar esto, actualiza al plan **Starter ($7/mes)**.
+- **Base de datos gratuita**: expira después de 90 días en el plan free. Para producción real, usa el plan **Starter ($7/mes)**.
+- **Archivos subidos**: en el plan free los archivos no persisten entre reinicios. Para producción usa **Cloudinary** o **AWS S3** para almacenar archivos.
+
+---
+
+## ¿Problemas?
+
+Si algo falla, revisa los **Logs** en Render (pestaña "Logs" del Web Service). El error más común es que `DATABASE_URL` no esté bien copiada.
