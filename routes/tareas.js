@@ -1,14 +1,8 @@
 const router = require('express').Router();
 const pool   = require('../db/pool');
-const multer = require('multer');
 const path   = require('path');
 const { verificarToken, soloAdmin } = require('../middleware/auth');
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/'),
-  filename:    (req, file, cb) => cb(null, Date.now() + '-' + Math.round(Math.random()*1E9) + path.extname(file.originalname))
-});
-const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
+const { upload } = require('../middleware/upload');
 
 // ──────────────────────────────────────────
 // TAREAS
@@ -108,7 +102,7 @@ router.delete('/:id', verificarToken, soloAdmin, async (req, res) => {
 router.post('/:id/entregar', verificarToken, upload.single('archivo'), async (req, res) => {
   try {
     const { comentario } = req.body;
-    const archivoUrl = req.file ? `/uploads/${req.file.filename}` : null;
+    const archivoUrl = req.file ? req.file.path : null;
 
     const { rows } = await pool.query(
       `INSERT INTO entregas (tarea_id, estudiante_id, comentario, archivo_url)

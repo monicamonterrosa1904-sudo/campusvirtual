@@ -1,26 +1,8 @@
 const router = require('express').Router();
 const pool   = require('../db/pool');
-const multer = require('multer');
 const path   = require('path');
 const { verificarToken, soloAdmin } = require('../middleware/auth');
-
-// Configuración de Multer para subida de archivos
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/'),
-  filename:    (req, file, cb) => {
-    const unique = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, unique + path.extname(file.originalname));
-  }
-});
-const upload = multer({
-  storage,
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
-  fileFilter: (req, file, cb) => {
-    const permitidos = /pdf|xlsx|xls|docx|doc|pptx|ppt|mp4|webm|avi|mov/;
-    const ext = permitidos.test(path.extname(file.originalname).toLowerCase());
-    ext ? cb(null, true) : cb(new Error('Tipo de archivo no permitido'));
-  }
-});
+const { upload } = require('../middleware/upload');
 
 // GET /api/modulos?curso_id=X
 router.get('/', verificarToken, async (req, res) => {
@@ -88,7 +70,7 @@ router.post('/:id/archivos', verificarToken, soloAdmin, upload.single('archivo')
   try {
     const { nombre, tipo, url, orden } = req.body;
     // Si se subió un archivo físico, usa su ruta; si no, usa URL externa
-    const archivoUrl = req.file ? `/uploads/${req.file.filename}` : url;
+    const archivoUrl = req.file ? req.file.path : url;
     if (!archivoUrl) return res.status(400).json({ error: 'Archivo o URL requerido' });
 
     const tipoFinal = tipo || detectarTipo(req.file?.originalname || url || '');
